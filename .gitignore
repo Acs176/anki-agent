@@ -1,1 +1,3 @@
 anki/
+__pycache__/
+.env

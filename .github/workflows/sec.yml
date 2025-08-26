@@ -1,7 +1,5 @@
 name: Security check - Bandit
-
 on: push
-
 jobs:
   build:
     runs-on: ubuntu-latest
