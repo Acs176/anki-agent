@@ -1,0 +1,29 @@
+name: Security check - Bandit
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10.11'
+        cache: 'pip'
+
+    - name: Install Bandit
+      run: pip install --upgrade pip bandit
+
+    - name: Run Bandit
+      run: |
+        mkdir -p output
+        bandit -r . -f txt -o output/security_report.txt || true
+
+    - name: Upload report
+      uses: actions/upload-artifact@v4
+      with:
+        name: Security report
+        path: output/security_report.txt
