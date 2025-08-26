@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+# Pyflakes/pycodestyle + a few common sense extras
+select = ["E","F","I","B","UP","SIM"]
+ignore = ["E203","E266","E501"]  # let the formatter handle these
