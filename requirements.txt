@@ -1,3 +1,5 @@
 python-dotenv
 pydantic-ai
 ruff
+pytest
+pytest-asyncio
