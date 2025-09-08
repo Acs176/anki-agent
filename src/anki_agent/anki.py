@@ -1,16 +1,20 @@
 import json
 import urllib.request
+from typing import Any  # noqa: E402
 
 from pydantic import BaseModel
 
+from .logging_utils import logs_handler
 from .model import NonVerbOut, VerbOut
 
 ANKI_CONNECT_URL = "http://127.0.0.1:8765"
 API_VERSION = 6
 API_KEY = None
 
+logger = logs_handler.get_logger()
 
-def _payload(action, params=None):
+
+def _payload(action: str, params: dict[str, Any] | None = None):
     body = {"action": action, "version": API_VERSION}
     if params:
         body["params"] = params
@@ -21,19 +25,23 @@ def _payload(action, params=None):
     return json.dumps(body).encode("utf-8")
 
 
-def invoke(action, **params):
+def invoke(action: str, **params):
+    logger.debug("Invoking AnkiConnect action=%s params=%s", action, list(params.keys()))
     req = urllib.request.Request(ANKI_CONNECT_URL, _payload(action, params))
     with urllib.request.urlopen(req) as resp:
         response = json.load(resp)
     if "error" not in response or "result" not in response:
+        logger.error("Invalid AnkiConnect response: keys=%s", list(response.keys()))
         raise RuntimeError("Invalid AnkiConnect response")
     if response["error"] is not None:
+        logger.error("AnkiConnect error for action=%s: %s", action, response["error"])
         raise RuntimeError(response["error"])
+    logger.debug("AnkiConnect action=%s result=%s", action, response["result"])
     return response["result"]
 
 
 def ensure_deck(deck_name: str):
-    # createDeck won't overwrite, it just ensures it exists
+    logger.info("Ensuring deck exists: %s", deck_name)
     return invoke("createDeck", deck=deck_name)  # returns deck ID if it created one
 
 
@@ -41,7 +49,7 @@ def add_flashcard(
     deck_name: str,
     source_word: str,
     data: BaseModel,
-    tags: list[str] | None = None,
+    tags: list[str] = None,
 ):
     match data:
         case NonVerbOut():
@@ -58,13 +66,12 @@ def add_nonverb_flashcard(
     deck_name: str,
     source_word: str,
     data: NonVerbOut,
-    tags: list[str] | None = None,
+    tags: list[str] = None,
 ):
-    """
-    Create an Anki flashcard for a non-verb word using NonVerbOut data.
-    """
+    logger.info("Adding non-verb flashcard: deck=%s word=%s", deck_name, source_word)
     front = source_word
-    back = f"Translation: {data.translation}\nSample: {data.sample}"
+    sample = data.sample_phrase
+    back = f"Translation: {data.translation}\nSample: {sample}"
     return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "nonverb"])
 
 
@@ -72,12 +79,10 @@ def add_verb_flashcard(
     deck_name: str,
     source_word: str,
     data: VerbOut,
-    tags: list[str] | None = None,
+    tags: list[str] = None,
 ):
-    """
-    Create an Anki flashcard for a verb word using VerbOut data.
-    """
-    front = f"{source_word} — (verb)"
+    logger.info("Adding verb flashcard: deck=%s word=%s", deck_name, source_word)
+    front = f"{source_word} (verb)"
     back = (
         f"Translation: {data.translation}\n"
         f"Forms:\n"
@@ -91,6 +96,13 @@ def add_verb_flashcard(
 
 
 def add_basic_note(deck_name: str, front: str, back: str, tags=None):
+    logger.debug(
+        "Submitting Basic note: deck=%s tags=%s front_len=%d back_len=%d",
+        deck_name,
+        (tags or []),
+        len(front),
+        len(back),
+    )
     note = {
         "deckName": deck_name,
         "modelName": "Basic",
@@ -107,10 +119,3 @@ def add_basic_note(deck_name: str, front: str, back: str, tags=None):
         "tags": tags or [],
     }
     return invoke("addNote", note=note)  # returns note id on success
-
-
-if __name__ == "__main__":
-    deck = "test"  # any deck path you like; subdecks use '::'
-    ensure_deck(deck)
-    note_id = add_basic_note(deck, front="hablar", back="to speak", tags=["auto"])
-    print("Created note id:", note_id)
