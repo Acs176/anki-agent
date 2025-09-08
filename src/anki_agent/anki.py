@@ -31,7 +31,6 @@ def invoke(action, **params):
 def ensure_deck(deck_name: str):
     # createDeck won't overwrite, it just ensures it exists
     return invoke("createDeck", deck=deck_name)  # returns deck ID if it created one
-    # Deck creation behavior per docs. :contentReference[oaicite:1]{index=1}
 
 
 def add_basic_note(deck_name: str, front: str, back: str, tags=None):
@@ -51,7 +50,6 @@ def add_basic_note(deck_name: str, front: str, back: str, tags=None):
         "tags": tags or [],
     }
     return invoke("addNote", note=note)  # returns note id on success
-    # addNote shape (fields/options/duplicateScope/tags) per docs. :contentReference[oaicite:2]{index=2}
 
 
 if __name__ == "__main__":
