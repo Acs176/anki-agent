@@ -8,7 +8,10 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from . import anki
+from .logging_utils import logs_handler
 from .model import NonVerbOut, VerbOut
+
+logger = logs_handler.get_logger()
 
 
 @dataclass
@@ -21,6 +24,7 @@ class AnkiAgent:
     agent: Agent
 
     def __init__(self, model_name, api_key):
+        logger.info("Initializing AnkiAgent with model=%s", model_name)
         model = OpenAIChatModel(model_name, provider=OpenAIProvider(api_key=api_key))
         nonverb_agent = Agent(
             model=model,
@@ -64,25 +68,60 @@ class AnkiAgent:
 
         @controller.tool
         async def make_nonverb_card(ctx: RunContext[Deps], source: str):
+            logger.info(
+                "Router chose: nonverb | source='%s' | deck='%s' | target='%s'",
+                source,
+                ctx.deps.deck,
+                ctx.deps.target_lang,
+            )
+            prompt = f"SOURCE: {source}\nTARGET: {ctx.deps.target_lang}"
+            logger.debug("Nonverb sub-agent prompt: %s", prompt)
             # Ask nonverb sub-agent to produce two lines.
-            result = await nonverb_agent.run(f"SOURCE: {source}\nTARGET: {ctx.deps.target_lang}")
+            result = await nonverb_agent.run(prompt)
+            logger.debug("Nonverb sub-agent output: %s", result.output)
+            logger.debug("Nonverb sub-agent messages: %s", result.all_messages)
+            logger.debug(
+                "Adding flashcard via anki.add_flashcard for nonverb | deck=%s word=%s",
+                ctx.deps.deck,
+                source,
+            )
             note_id = anki.add_flashcard(
                 ctx.deps.deck, source, result.output, tags=["ai", "nonverb"]
             )
+            logger.info("Nonverb note created: id=%s", note_id)
             return f"note_id={note_id}"
 
         @controller.tool
         async def make_verb_card(ctx: RunContext[Deps], source: str):
+            logger.info(
+                "Router chose: verb | source='%s' | deck='%s' | target='%s'",
+                source,
+                ctx.deps.deck,
+                ctx.deps.target_lang,
+            )
+            prompt = f"VERB: {source}\nTARGET: {ctx.deps.target_lang}"
+            logger.debug("Verb sub-agent prompt: %s", prompt)
             # Ask verb sub-agent to produce full back text in one shot.
-            result = await verb_agent.run(f"VERB: {source}\nTARGET: {ctx.deps.target_lang}")
+            result = await verb_agent.run(prompt)
+            logger.debug("Verb sub-agent output: %s", result.output)
+            logger.debug("Verb sub-agent messages: %s", result.all_messages)
+            logger.debug(
+                "Adding flashcard via anki.add_flashcard for verb | deck=%s word=%s",
+                ctx.deps.deck,
+                source,
+            )
             note_id = anki.add_flashcard(ctx.deps.deck, source, result.output, tags=["ai", "verb"])
+            logger.info("Verb note created: id=%s", note_id)
             return f"note_id={note_id}"
 
         self.agent = controller
 
     async def add_word(self, word: str, deck: str, target_lang: str) -> list[str]:
+        logger.info("Adding word: '%s' to deck='%s' target='%s'", word, deck, target_lang)
         deps = Deps(deck=deck, target_lang=target_lang)
         user_message = f"Word: {word}\nTarget language: {target_lang}"
+        logger.debug("Controller agent user_message: %s", user_message)
+        logger.debug("Controller agent deps: deck=%s target=%s", deps.deck, deps.target_lang)
         result = await self.agent.run(user_message, deps=deps)
-        print(result.all_messages)
+        logger.debug("Controller agent messages: %s", result.all_messages)
         return result.all_messages  # final model text (includes our tool's return string)
