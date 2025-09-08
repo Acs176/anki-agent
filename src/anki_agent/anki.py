@@ -50,7 +50,7 @@ def add_flashcard(
             return add_verb_flashcard(deck_name, source_word, data, tags)
         case _:
             raise TypeError(
-                f"Unsupported data type {type(data).__name__}. " "Expected NonVerbOut or VerbOut."
+                f"Unsupported data type {type(data).__name__}. Expected NonVerbOut or VerbOut."
             )
 
 
