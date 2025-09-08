@@ -1,6 +1,10 @@
 import json
 import urllib.request
 
+from pydantic import BaseModel
+
+from .model import NonVerbOut, VerbOut
+
 ANKI_CONNECT_URL = "http://127.0.0.1:8765"
 API_VERSION = 6
 API_KEY = None
@@ -31,6 +35,59 @@ def invoke(action, **params):
 def ensure_deck(deck_name: str):
     # createDeck won't overwrite, it just ensures it exists
     return invoke("createDeck", deck=deck_name)  # returns deck ID if it created one
+
+
+def add_flashcard(
+    deck_name: str,
+    source_word: str,
+    data: BaseModel,
+    tags: list[str] | None = None,
+):
+    match data:
+        case NonVerbOut():
+            return add_nonverb_flashcard(deck_name, source_word, data, tags)
+        case VerbOut():
+            return add_verb_flashcard(deck_name, source_word, data, tags)
+        case _:
+            raise TypeError(
+                f"Unsupported data type {type(data).__name__}. Expected NonVerbOut or VerbOut."
+            )
+
+
+def add_nonverb_flashcard(
+    deck_name: str,
+    source_word: str,
+    data: NonVerbOut,
+    tags: list[str] | None = None,
+):
+    """
+    Create an Anki flashcard for a non-verb word using NonVerbOut data.
+    """
+    front = source_word
+    back = f"Translation: {data.translation}\nSample: {data.sample}"
+    return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "nonverb"])
+
+
+def add_verb_flashcard(
+    deck_name: str,
+    source_word: str,
+    data: VerbOut,
+    tags: list[str] | None = None,
+):
+    """
+    Create an Anki flashcard for a verb word using VerbOut data.
+    """
+    front = f"{source_word} — (verb)"
+    back = (
+        f"Translation: {data.translation}\n"
+        f"Forms:\n"
+        f"- Infinitive: {data.infinitive}\n"
+        f"- Present: {data.present} — {data.sample_present}\n"
+        f"- Past: {data.past} — {data.sample_past}\n"
+        f"- Supine: {data.supine} — {data.sample_supine}\n"
+        f"- Imperative: {data.imperative} — {data.sample_imperative}"
+    )
+    return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "verb"])
 
 
 def add_basic_note(deck_name: str, front: str, back: str, tags=None):
