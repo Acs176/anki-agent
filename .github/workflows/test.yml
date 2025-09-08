@@ -7,7 +7,7 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,8 +23,8 @@ jobs:
           pip install -U pytest pytest-xdist pytest-cov
 
       - name: Run Pytest
-          run: |
-            python -m pytest --junitxml=pytest-report.xml --cov=src/ --cov-report=xml
+        run: |
+          python -m pytest --junitxml=pytest-report.xml --cov=src/ --cov-report=xml
 
       - name: Upload JUnit report
         uses: actions/upload-artifact@v4
