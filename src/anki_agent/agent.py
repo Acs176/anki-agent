@@ -7,7 +7,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-import anki
+from . import anki
 
 
 @dataclass
@@ -43,8 +43,8 @@ class AnkiAgent:
                 "INPUT: a verb (infinitive) and a TARGET language.\n"
                 "TASK: Build a compact text block for ONE flashcard back with:\n"
                 "1) Translation: <concise meaning>\n"
-                "2) Conjugations (Present, Past, Imperative, Past perfect): list 4–6 common person/number forms with different and commonly used phrases as '- <tense>: <conjugation> — <sample>'\n"
-                "   Example style: '- Present: speak — I speak quickly.'\n"
+                "2) Conjugations (Present, Past, Imperative, Past perfect): list 4-6 common person/number forms with different and commonly used phrases as '- <tense>: <conjugation> - <sample>'\n"
+                "   Example style: '- Present: speak - I speak quickly.'\n"
                 "Keep lines short and clean. No extra commentary."
             ),
         )
@@ -88,15 +88,15 @@ class AnkiAgent:
             result = await verb_agent.run(f"VERB: {source}\nTARGET: {ctx.deps.target_lang}")
             back_block = result.output.strip()
             # Front shows infinitive and a small hint it's a verb.
-            front = f"{source} — (verb)"
+            front = f"{source} - (verb)"
             note_id = anki.add_basic_note(ctx.deps.deck, front, back_block, tags=["ai", "verb"])
             return f"note_id={note_id}"
 
         self.agent = controller
 
-    async def add_word(self, word: str, deck: str, target_lang: str) -> str:
+    async def add_word(self, word: str, deck: str, target_lang: str) -> list[str]:
         deps = Deps(deck=deck, target_lang=target_lang)
         user_message = f"Word: {word}\nTarget language: {target_lang}"
         result = await self.agent.run(user_message, deps=deps)
         print(result.all_messages)
-        return result.all_messages  # final model text (includes our tool’s return string)
+        return result.all_messages  # final model text (includes our tool's return string)

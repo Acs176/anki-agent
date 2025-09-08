@@ -1,6 +1,6 @@
 import pytest
 
-import agent
+from anki_agent import agent
 
 
 @pytest.mark.asyncio

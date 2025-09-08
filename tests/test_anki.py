@@ -1,7 +1,7 @@
 import io
 import json
 
-import anki
+from anki_agent import anki
 
 
 class FakeResponse(io.BytesIO):
