@@ -1,11 +1,11 @@
 import json
 import urllib.request
-from typing import Any  # noqa: E402
+from typing import Any
 
 from pydantic import BaseModel
 
 from .logging_utils import logs_handler
-from .model import NonVerbOut, VerbOut
+from .model import AdjCard, FallbackCard, NounCard, PhraseCard, VerbCard
 
 ANKI_CONNECT_URL = "http://127.0.0.1:8765"
 API_VERSION = 6
@@ -51,34 +51,62 @@ def add_flashcard(
     data: BaseModel,
     tags: list[str] = None,
 ):
-    match data:
-        case NonVerbOut():
-            return add_nonverb_flashcard(deck_name, source_word, data, tags)
-        case VerbOut():
-            return add_verb_flashcard(deck_name, source_word, data, tags)
-        case _:
-            raise TypeError(
-                f"Unsupported data type {type(data).__name__}. Expected NonVerbOut or VerbOut."
-            )
+    if isinstance(data, NounCard):
+        return add_noun_flashcard(deck_name, source_word, data, tags)
+    if isinstance(data, AdjCard):
+        return add_adj_flashcard(deck_name, source_word, data, tags)
+    if isinstance(data, VerbCard):
+        return add_verb_flashcard(deck_name, source_word, data, tags)
+    if isinstance(data, PhraseCard):
+        return add_phrase_flashcard(deck_name, source_word, data, tags)
+    if isinstance(data, FallbackCard):
+        return add_fallback_flashcard(deck_name, source_word, data, tags)
+    raise TypeError(f"Unsupported data type {type(data).__name__}.")
 
 
-def add_nonverb_flashcard(
+def add_noun_flashcard(
     deck_name: str,
     source_word: str,
-    data: NonVerbOut,
+    data: NounCard,
     tags: list[str] = None,
 ):
-    logger.info("Adding non-verb flashcard: deck=%s word=%s", deck_name, source_word)
+    logger.info("Adding noun flashcard: deck=%s word=%s", deck_name, source_word)
     front = source_word
-    sample = data.sample_phrase
-    back = f"Translation: {data.translation}\nSample: {sample}"
-    return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "nonverb"])
+    back = (
+        f"Translation: {data.translation}\n"
+        f"Article: {data.article}\n"
+        f"Plural: {data.plural}\n"
+        f"Definite: {data.definite_sg} (sg), {data.definite_pl} (pl)\n"
+        f"Sample: {data.sample}"
+    )
+    return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "noun"])
+
+
+def add_adj_flashcard(
+    deck_name: str,
+    source_word: str,
+    data: AdjCard,
+    tags: list[str] = None,
+):
+    logger.info("Adding adjective flashcard: deck=%s word=%s", deck_name, source_word)
+    front = source_word
+    lines = [
+        f"Translation: {data.translation}",
+        f"Positive: {data.positive}",
+    ]
+    if getattr(data, "comparative", None):
+        lines.append(f"Comparative: {data.comparative}")
+    if getattr(data, "superlative", None):
+        lines.append(f"Superlative: {data.superlative}")
+    lines.append(f"Sample: {data.sample}")
+    back = "\n".join(lines)
+    return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "adjective"])
 
 
 def add_verb_flashcard(
     deck_name: str,
     source_word: str,
-    data: VerbOut,
+    data: VerbCard,
     tags: list[str] = None,
 ):
     logger.info("Adding verb flashcard: deck=%s word=%s", deck_name, source_word)
@@ -93,6 +121,44 @@ def add_verb_flashcard(
         f"- Imperative: {data.imperative} — {data.sample_imperative}"
     )
     return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "verb"])
+
+
+def add_phrase_flashcard(
+    deck_name: str,
+    source_word: str,
+    data: PhraseCard,
+    tags: list[str] = None,
+):
+    logger.info("Adding phrase flashcard: deck=%s word=%s", deck_name, source_word)
+    front = source_word
+    lines = [
+        f"Phrase: {data.text_sv}",
+        f"Translation: {data.translation}",
+    ]
+    if getattr(data, "pattern", None):
+        lines.append(f"Pattern: {data.pattern}")
+    lines.append(f"Sample: {data.sample}")
+    back = "\n".join(lines)
+    return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "phrase"])
+
+
+def add_fallback_flashcard(
+    deck_name: str,
+    source_word: str,
+    data: FallbackCard,
+    tags: list[str] = None,
+):
+    logger.info("Adding fallback flashcard: deck=%s word=%s", deck_name, source_word)
+    front = source_word
+    lines = [f"Source: {data.source}"]
+    if getattr(data, "translation", None):
+        lines.append(f"Translation: {data.translation}")
+    if getattr(data, "sample", None):
+        lines.append(f"Sample: {data.sample}")
+    if getattr(data, "notes", None):
+        lines.append(f"Notes: {data.notes}")
+    back = "\n".join(lines)
+    return add_basic_note(deck_name, front, back, tags=(tags or []) + ["ai", "fallback"])
 
 
 def add_basic_note(deck_name: str, front: str, back: str, tags=None):
