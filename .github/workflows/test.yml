@@ -6,6 +6,8 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    env:
+      PROMPTS_PATH: ${{ vars.PROMPTS_PATH }}
     steps:
       - uses: actions/checkout@v4
 
