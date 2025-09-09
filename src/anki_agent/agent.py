@@ -97,15 +97,8 @@ class AnkiAgent:
         controller_system_prompt = router_prompt_path.read_text(encoding="utf-8").strip()
         logger.info("Loaded controller system prompt from %s", router_prompt_path.resolve())
 
-        controller = Agent(
-            model=model,
-            deps_type=Deps,
-            system_prompt=controller_system_prompt,
-        )
-
-        @controller.tool
         async def make_noun_card(ctx: RunContext[Deps], source: str):
-            if not self._tool_called:
+            if self._tool_called:
                 logger.warning("Duplicate tool call prevented: noun | source='%s'", source)
                 return "duplicate_tool_call_ignored"
             self._tool_called = True
@@ -130,9 +123,8 @@ class AnkiAgent:
             logger.info("noun note created: id=%s", note_id)
             return f"note_id={note_id}"
 
-        @controller.tool
         async def make_verb_card(ctx: RunContext[Deps], source: str):
-            if not self._tool_called:
+            if self._tool_called:
                 logger.warning("Duplicate tool call prevented: verb | source='%s'", source)
                 return "duplicate_tool_call_ignored"
             self._tool_called = True
@@ -157,9 +149,8 @@ class AnkiAgent:
             logger.info("Verb note created: id=%s", note_id)
             return f"note_id={note_id}"
 
-        @controller.tool
         async def make_adj_card(ctx: RunContext[Deps], source: str):
-            if not self._tool_called:
+            if self._tool_called:
                 logger.warning("Duplicate tool call prevented: adjective | source='%s'", source)
                 return "duplicate_tool_call_ignored"
             self._tool_called = True
@@ -179,9 +170,8 @@ class AnkiAgent:
             logger.info("Adjective note created: id=%s", note_id)
             return f"note_id={note_id}"
 
-        @controller.tool
         async def make_phrase_card(ctx: RunContext[Deps], source: str):
-            if not self._tool_called:
+            if self._tool_called:
                 logger.warning("Duplicate tool call prevented: phrase | source='%s'", source)
                 return "duplicate_tool_call_ignored"
             self._tool_called = True
@@ -201,9 +191,8 @@ class AnkiAgent:
             logger.info("Phrase note created: id=%s", note_id)
             return f"note_id={note_id}"
 
-        @controller.tool
         async def make_fallback_card(ctx: RunContext[Deps], source: str, reason: str | None = None):
-            if not self._tool_called:
+            if self._tool_called:
                 logger.warning(
                     "Duplicate tool call prevented: fallback | source='" + str(source) + "'"
                 )
@@ -227,6 +216,20 @@ class AnkiAgent:
             )
             logger.info("Fallback note created: id=%s", note_id)
             return f"note_id={note_id}"
+
+        # Now that tool functions are defined, create the controller Agent
+        controller = Agent(
+            model=model,
+            deps_type=Deps,
+            system_prompt=controller_system_prompt,
+            output_type=[
+                make_noun_card,
+                make_adj_card,
+                make_verb_card,
+                make_phrase_card,
+                make_fallback_card,
+            ],
+        )
 
         self.agent = controller
 

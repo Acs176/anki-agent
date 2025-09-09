@@ -1,4 +1,5 @@
 import json
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -28,8 +29,29 @@ def _payload(action: str, params: dict[str, Any] | None = None):
 def invoke(action: str, **params):
     logger.debug("Invoking AnkiConnect action=%s params=%s", action, list(params.keys()))
     req = urllib.request.Request(ANKI_CONNECT_URL, _payload(action, params))
-    with urllib.request.urlopen(req) as resp:
-        response = json.load(resp)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            response = json.load(resp)
+    except (
+        OSError,
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        ConnectionError,
+        TimeoutError,
+    ) as e:
+        logger.error(
+            "Failed to reach AnkiConnect at %s for action=%s: %s",
+            ANKI_CONNECT_URL,
+            action,
+            e,
+        )
+        raise RuntimeError(
+            f"Cannot connect to AnkiConnect at {ANKI_CONNECT_URL}. Is Anki running and AnkiConnect enabled?"
+        ) from e
+    except json.JSONDecodeError as e:
+        logger.error("Invalid JSON from AnkiConnect for action=%s: %s", action, e)
+        raise RuntimeError("Invalid JSON response from AnkiConnect") from e
+
     if "error" not in response or "result" not in response:
         logger.error("Invalid AnkiConnect response: keys=%s", list(response.keys()))
         raise RuntimeError("Invalid AnkiConnect response")
@@ -184,4 +206,8 @@ def add_basic_note(deck_name: str, front: str, back: str, tags=None):
         },
         "tags": tags or [],
     }
-    return invoke("addNote", note=note)  # returns note id on success
+    try:
+        return invoke("addNote", note=note)  # returns note id on success
+    except RuntimeError as e:
+        logger.error(f"Error creating the flashcard: {e}")
+        return -1
