@@ -1,6 +1,8 @@
 import os
 import sys
 
+from dotenv import load_dotenv
+
 
 def _add_src_to_path():
     # Ensure `src` is importable when running tests without installing the package
@@ -10,4 +12,5 @@ def _add_src_to_path():
         sys.path.insert(0, src_path)
 
 
+load_dotenv()
 _add_src_to_path()
