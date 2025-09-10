@@ -73,4 +73,4 @@ SOURCE: hund, TARGET: Swedish → make_noun_card("hund", "Swedish")
 
 SOURCE: http://foo.com, TARGET: Swedish → make_fallback_card("http://foo.com", "Swedish", "non-lexical URL")
 
-Remember: one tool call only; no extra text.
+Remember: one tool call only; After the tool returns, output exactly: done.

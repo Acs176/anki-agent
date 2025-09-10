@@ -1,4 +1,3 @@
-import asyncio
 import os
 
 from dotenv import load_dotenv
@@ -11,4 +10,4 @@ if __name__ == "__main__":
     logs_handler.setup_logging(level="debug")
     # Configure simple logging; override via LOG_LEVEL env var
     anki_agent = AnkiAgent("gpt-5-nano", os.getenv("OPENAI_API_KEY"))
-    asyncio.run(anki_agent.add_word("madrugar", "test", "svenska"))
+    anki_agent.add_word("kick", "test", "svenska")

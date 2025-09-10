@@ -11,7 +11,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from . import anki
 from .logging_utils import logs_handler
-from .model import AdjCard, FallbackCard, NounCard, PhraseCard, VerbCard
+from .model import AdjCard, FallbackCard, NounCard, PhraseCard, RouterFailure, VerbCard
 
 logger = logs_handler.get_logger()
 
@@ -97,15 +97,8 @@ class AnkiAgent:
         controller_system_prompt = router_prompt_path.read_text(encoding="utf-8").strip()
         logger.info("Loaded controller system prompt from %s", router_prompt_path.resolve())
 
-        controller = Agent(
-            model=model,
-            deps_type=Deps,
-            system_prompt=controller_system_prompt,
-        )
-
-        @controller.tool
-        async def make_noun_card(ctx: RunContext[Deps], source: str):
-            if not self._tool_called:
+        def make_noun_card(ctx: RunContext[Deps], source: str):
+            if self._tool_called:
                 logger.warning("Duplicate tool call prevented: noun | source='%s'", source)
                 return "duplicate_tool_call_ignored"
             self._tool_called = True
@@ -118,7 +111,7 @@ class AnkiAgent:
             prompt = f"SOURCE: {source}\nTARGET: {ctx.deps.target_lang}"
             logger.debug("noun sub-agent prompt: %s", prompt)
             # Ask noun sub-agent to produce two lines.
-            result = await noun_agent.run(prompt)
+            result = noun_agent.run_sync(prompt)
             logger.debug("noun sub-agent output: %s", result.output)
             logger.debug("noun sub-agent messages: %s", result.all_messages)
             logger.debug(
@@ -130,9 +123,8 @@ class AnkiAgent:
             logger.info("noun note created: id=%s", note_id)
             return f"note_id={note_id}"
 
-        @controller.tool
-        async def make_verb_card(ctx: RunContext[Deps], source: str):
-            if not self._tool_called:
+        def make_verb_card(ctx: RunContext[Deps], source: str):
+            if self._tool_called:
                 logger.warning("Duplicate tool call prevented: verb | source='%s'", source)
                 return "duplicate_tool_call_ignored"
             self._tool_called = True
@@ -145,7 +137,7 @@ class AnkiAgent:
             prompt = f"VERB: {source}\nTARGET: {ctx.deps.target_lang}"
             logger.debug("Verb sub-agent prompt: %s", prompt)
             # Ask verb sub-agent to produce full back text in one shot.
-            result = await verb_agent.run(prompt)
+            result = verb_agent.run_sync(prompt)
             logger.debug("Verb sub-agent output: %s", result.output)
             logger.debug("Verb sub-agent messages: %s", result.all_messages)
             logger.debug(
@@ -157,9 +149,8 @@ class AnkiAgent:
             logger.info("Verb note created: id=%s", note_id)
             return f"note_id={note_id}"
 
-        @controller.tool
-        async def make_adj_card(ctx: RunContext[Deps], source: str):
-            if not self._tool_called:
+        def make_adj_card(ctx: RunContext[Deps], source: str):
+            if self._tool_called:
                 logger.warning("Duplicate tool call prevented: adjective | source='%s'", source)
                 return "duplicate_tool_call_ignored"
             self._tool_called = True
@@ -171,7 +162,7 @@ class AnkiAgent:
             )
             prompt = f"ADJECTIVE: {source}\nTARGET: {ctx.deps.target_lang}"
             logger.debug("Adj sub-agent prompt: %s", prompt)
-            result = await adj_agent.run(prompt)
+            result = adj_agent.run_sync(prompt)
             logger.debug("Adj sub-agent output: %s", result.output)
             note_id = anki.add_flashcard(
                 ctx.deps.deck, source, result.output, tags=["ai", "adjective"]
@@ -179,9 +170,8 @@ class AnkiAgent:
             logger.info("Adjective note created: id=%s", note_id)
             return f"note_id={note_id}"
 
-        @controller.tool
-        async def make_phrase_card(ctx: RunContext[Deps], source: str):
-            if not self._tool_called:
+        def make_phrase_card(ctx: RunContext[Deps], source: str):
+            if self._tool_called:
                 logger.warning("Duplicate tool call prevented: phrase | source='%s'", source)
                 return "duplicate_tool_call_ignored"
             self._tool_called = True
@@ -193,7 +183,7 @@ class AnkiAgent:
             )
             prompt = f"PHRASE: {source}\nTARGET: {ctx.deps.target_lang}"
             logger.debug("Phrase sub-agent prompt: %s", prompt)
-            result = await phrase_agent.run(prompt)
+            result = phrase_agent.run_sync(prompt)
             logger.debug("Phrase sub-agent output: %s", result.output)
             note_id = anki.add_flashcard(
                 ctx.deps.deck, source, result.output, tags=["ai", "phrase"]
@@ -201,9 +191,8 @@ class AnkiAgent:
             logger.info("Phrase note created: id=%s", note_id)
             return f"note_id={note_id}"
 
-        @controller.tool
-        async def make_fallback_card(ctx: RunContext[Deps], source: str, reason: str | None = None):
-            if not self._tool_called:
+        def make_fallback_card(ctx: RunContext[Deps], source: str, reason: str | None = None):
+            if self._tool_called:
                 logger.warning(
                     "Duplicate tool call prevented: fallback | source='" + str(source) + "'"
                 )
@@ -220,7 +209,7 @@ class AnkiAgent:
                 f"\nREASON: {reason}" if reason else ""
             )
             logger.debug("Fallback sub-agent prompt: %s", prompt)
-            result = await fallback_agent.run(prompt)
+            result = fallback_agent.run_sync(prompt)
             logger.debug("Fallback sub-agent output: %s", result.output)
             note_id = anki.add_flashcard(
                 ctx.deps.deck, source, result.output, tags=["ai", "fallback"]
@@ -228,15 +217,30 @@ class AnkiAgent:
             logger.info("Fallback note created: id=%s", note_id)
             return f"note_id={note_id}"
 
+        # Now that tool functions are defined, create the controller Agent.
+        controller = Agent(
+            model=model,
+            deps_type=Deps,
+            system_prompt=controller_system_prompt,
+            output_type=[
+                make_noun_card,
+                make_adj_card,
+                make_verb_card,
+                make_phrase_card,
+                make_fallback_card,
+                RouterFailure,
+            ],
+        )
+
         self.agent = controller
 
-    async def add_word(self, word: str, deck: str, target_lang: str) -> list[str]:
+    def add_word(self, word: str, deck: str, target_lang: str) -> list[str]:
         logger.info("Adding word: '%s' to deck='%s' target='%s'", word, deck, target_lang)
         self._tool_called = False
         deps = Deps(deck=deck, target_lang=target_lang)
         user_message = f"Word: {word}\nTarget language: {target_lang}"
         logger.debug("Controller agent user_message: %s", user_message)
         logger.debug("Controller agent deps: deck=%s target=%s", deps.deck, deps.target_lang)
-        result = await self.agent.run(user_message, deps=deps)
+        result = self.agent.run_sync(user_message, deps=deps)
         logger.debug("Controller agent messages: %s", result.all_messages)
         return result.all_messages  # final model text (includes our tool's return string)
