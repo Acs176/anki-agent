@@ -7,6 +7,12 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class RouterFailure(BaseModel):
+    """An unrecoverable failure. Only use this in case of error"""
+
+    explanation: str
+
+
 class NounCard(BaseModel):
     translation: str
     article: Literal["en", "ett"]

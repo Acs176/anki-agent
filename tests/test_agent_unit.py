@@ -1,16 +1,13 @@
-import pytest
-
 from anki_agent import agent
 
 
-@pytest.mark.asyncio
-async def test_add_word_calls_controller_with_expected_args(monkeypatch):
+def test_add_word_calls_controller_with_expected_args(monkeypatch):
     # Construct with fake model/api key; we'll stub out .agent.run below
     a = agent.AnkiAgent(model_name="fake", api_key="fake")
 
     captured = {}
 
-    async def fake_run(user_message, deps=None):
+    def fake_run(user_message, deps=None):
         captured["user_message"] = user_message
         captured["deps"] = deps
 
@@ -22,11 +19,11 @@ async def test_add_word_calls_controller_with_expected_args(monkeypatch):
 
     # Replace the controller agent with a simple stub exposing .run
     class FakeController:
-        run = staticmethod(fake_run)
+        run_sync = staticmethod(fake_run)
 
     a.agent = FakeController()
 
-    result = await a.add_word("immediately", "test", "svenska")
+    result = a.add_word("immediately", "test", "svenska")
 
     assert "Word: immediately" in captured["user_message"]
     assert "Target language: svenska" in captured["user_message"]
