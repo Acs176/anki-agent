@@ -3,10 +3,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from pydantic import BaseModel
-
 from .logging_utils import logs_handler
-from .model import AdjCard, FallbackCard, NounCard, PhraseCard, VerbCard
+from .model import AdjCard, FallbackCard, FlashcardType, NounCard, PhraseCard, VerbCard
 
 ANKI_CONNECT_URL = "http://127.0.0.1:8765"
 API_VERSION = 6
@@ -70,7 +68,7 @@ def ensure_deck(deck_name: str):
 def add_flashcard(
     deck_name: str,
     source_word: str,
-    data: BaseModel,
+    data: FlashcardType,
     tags: list[str] = None,
 ):
     if isinstance(data, NounCard):
