@@ -49,6 +49,7 @@ class AnkiAgent:
                 "definite_sg and definite_pl are singular and plural in the defined form, respectively\n"
                 "sample is a useful sample phrase with the noun"
             ),
+            instrument=True,
         )
 
         verb_agent = Agent(
@@ -62,6 +63,7 @@ class AnkiAgent:
                 "2) The rest of fields represent the different tenses and sample phrases in those tenses."
                 "Use common and useful phrases. Make up a different phrase for each tense."
             ),
+            instrument=True,
         )
 
         adj_agent = Agent(
@@ -72,6 +74,7 @@ class AnkiAgent:
                 "INPUT: an adjective and TARGET language."
                 " Return AdjCard with translation, positive, comparative, superlative (opt), sample."
             ),
+            instrument=True,
         )
 
         phrase_agent = Agent(
@@ -82,6 +85,7 @@ class AnkiAgent:
                 "INPUT: a phrase/expression and TARGET language."
                 " Return PhraseCard with text_sv, translation, pattern (opt), sample."
             ),
+            instrument=True,
         )
 
         fallback_agent = Agent(
@@ -92,6 +96,7 @@ class AnkiAgent:
                 "INPUT may be ambiguous/non-lexical."
                 " Return FallbackCard with source, optional translation/sample/notes."
             ),
+            instrument=True,
         )
         prompt_dir_path = os.getenv("PROMPTS_PATH")
         # TODO: Centralize environment variable loading in a Config class
@@ -105,7 +110,7 @@ class AnkiAgent:
         controller_system_prompt = router_prompt_path.read_text(encoding="utf-8").strip()
         logger.info("Loaded controller system prompt from %s", router_prompt_path.resolve())
 
-        def make_noun_card(
+        async def make_noun_card(
             ctx: RunContext[Deps],
             source: str,
         ) -> NounCard:
@@ -123,13 +128,13 @@ class AnkiAgent:
             prompt = f"SOURCE: {source}\nTARGET: {ctx.deps.target_lang}"
             logger.debug("noun sub-agent prompt: %s", prompt)
             # Ask noun sub-agent to produce two lines.
-            result = noun_agent.run_sync(prompt)
+            result = await noun_agent.run(prompt)
             logger.debug("noun sub-agent output: %s", result.output)
             logger.debug("noun sub-agent messages: %s", result.all_messages)
             # Return the structured card; caller will post to Anki
             return result.output
 
-        def make_verb_card(
+        async def make_verb_card(
             ctx: RunContext[Deps],
             source: str,
         ) -> VerbCard:
@@ -147,12 +152,12 @@ class AnkiAgent:
             prompt = f"VERB: {source}\nTARGET: {ctx.deps.target_lang}"
             logger.debug("Verb sub-agent prompt: %s", prompt)
             # Ask verb sub-agent to produce full back text in one shot.
-            result = verb_agent.run_sync(prompt)
+            result = await verb_agent.run(prompt)
             logger.debug("Verb sub-agent output: %s", result.output)
             logger.debug("Verb sub-agent messages: %s", result.all_messages)
             return result.output
 
-        def make_adj_card(
+        async def make_adj_card(
             ctx: RunContext[Deps],
             source: str,
         ) -> AdjCard:
@@ -169,11 +174,11 @@ class AnkiAgent:
 
             prompt = f"ADJECTIVE: {source}\nTARGET: {ctx.deps.target_lang}"
             logger.debug("Adj sub-agent prompt: %s", prompt)
-            result = adj_agent.run_sync(prompt)
+            result = await adj_agent.run(prompt)
             logger.debug("Adj sub-agent output: %s", result.output)
             return result.output
 
-        def make_phrase_card(
+        async def make_phrase_card(
             ctx: RunContext[Deps],
             source: str,
         ) -> PhraseCard:
@@ -190,11 +195,11 @@ class AnkiAgent:
 
             prompt = f"PHRASE: {source}\nTARGET: {ctx.deps.target_lang}"
             logger.debug("Phrase sub-agent prompt: %s", prompt)
-            result = phrase_agent.run_sync(prompt)
+            result = await phrase_agent.run(prompt)
             logger.debug("Phrase sub-agent output: %s", result.output)
             return result.output
 
-        def make_fallback_card(
+        async def make_fallback_card(
             ctx: RunContext[Deps],
             source: str,
             reason: str | None = None,
@@ -217,7 +222,7 @@ class AnkiAgent:
                 f"\nREASON: {reason}" if reason else ""
             )
             logger.debug("Fallback sub-agent prompt: %s", prompt)
-            result = fallback_agent.run_sync(prompt)
+            result = await fallback_agent.run(prompt)
             logger.debug("Fallback sub-agent output: %s", result.output)
             return result.output
 
@@ -234,11 +239,43 @@ class AnkiAgent:
                 make_fallback_card,
                 RouterFailure,
             ],
+            instrument=True,
         )
 
         self.agent = controller
 
-    def add_word(self, word: str, deck: str, target_lang: str) -> int:
+    async def add_word_async(self, word: str, deck: str, target_lang: str) -> list[str]:
+        logger.info("Adding word: '%s' to deck='%s' target='%s'", word, deck, target_lang)
+        self._tool_called = False
+        deps = Deps(deck=deck, target_lang=target_lang)
+        user_message = f"Word: {word}\nTarget language: {target_lang}"
+        logger.debug("Controller agent user_message: %s", user_message)
+        logger.debug("Controller agent deps: deck=%s target=%s", deps.deck, deps.target_lang)
+        result = await self.agent.run(user_message, deps=deps)
+        logger.debug("Controller agent messages: %s", result.all_messages)
+
+        output = result.output
+        if isinstance(output, FlashcardType):
+            logger.debug(
+                "Posting flashcard via anki.add_flashcard | deck=%s word=%s type=%s",
+                deck,
+                word,
+                type(output).__name__,
+            )
+            note_id = anki.add_flashcard(deck, word, output)
+            if note_id == anki.DUPLICATE_NOTE:
+                logger.info("Flashcard duplicate; not created")
+            else:
+                logger.info("Note created: id=%s", note_id)
+        elif isinstance(output, RouterFailure):
+            logger.error("RouterFailure: %s", output.explanation)
+        else:
+            logger.error("Unexpected router output type: %s", type(output))
+
+        # Return full trace for observability / tests
+        return result.all_messages
+
+    def add_word(self, word: str, deck: str, target_lang: str) -> list[str]:
         logger.info("Adding word: '%s' to deck='%s' target='%s'", word, deck, target_lang)
         self._tool_called = False
         deps = Deps(deck=deck, target_lang=target_lang)
@@ -249,12 +286,6 @@ class AnkiAgent:
         logger.debug("Controller agent messages: %s", result.all_messages)
 
         output = result.output
-        # If the router returned a failure explanation, do not post to Anki.
-        if isinstance(output, RouterFailure):
-            logger.error("RouterFailure: %s", output.explanation)
-            return -1
-
-        # Otherwise expect a structured card and add the flashcard now.
         if isinstance(output, FlashcardType):
             logger.debug(
                 "Posting flashcard via anki.add_flashcard | deck=%s word=%s type=%s",
@@ -263,9 +294,13 @@ class AnkiAgent:
                 type(output).__name__,
             )
             note_id = anki.add_flashcard(deck, word, output)
-            logger.info("Note created: id=%s", note_id)
-            return note_id
+            if note_id == anki.DUPLICATE_NOTE:
+                logger.info("Flashcard duplicate; not created")
+            else:
+                logger.info("Note created: id=%s", note_id)
+        elif isinstance(output, RouterFailure):
+            logger.error("RouterFailure: %s", output.explanation)
+        else:
+            logger.error("Unexpected router output type: %s", type(output))
 
-        # Unexpected output type
-        logger.error("Unexpected router output type: %s", type(output))
-        return -1
+        return result.all_messages
