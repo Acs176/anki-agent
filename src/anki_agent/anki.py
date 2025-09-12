@@ -3,14 +3,14 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from pydantic import BaseModel
-
 from .logging_utils import logs_handler
-from .model import AdjCard, FallbackCard, NounCard, PhraseCard, VerbCard
+from .model import AdjCard, FallbackCard, FlashcardType, NounCard, PhraseCard, VerbCard
 
 ANKI_CONNECT_URL = "http://127.0.0.1:8765"
 API_VERSION = 6
 API_KEY = None
+# Special return for duplicate note attempts
+DUPLICATE_NOTE = -2
 
 logger = logs_handler.get_logger()
 
@@ -70,7 +70,7 @@ def ensure_deck(deck_name: str):
 def add_flashcard(
     deck_name: str,
     source_word: str,
-    data: BaseModel,
+    data: FlashcardType,
     tags: list[str] = None,
 ):
     if isinstance(data, NounCard):
@@ -209,5 +209,10 @@ def add_basic_note(deck_name: str, front: str, back: str, tags=None):
     try:
         return invoke("addNote", note=note)  # returns note id on success
     except RuntimeError as e:
+        msg = str(e)
+        if "duplicate" in msg.lower():
+            # AnkiConnect duplicate note error
+            logger.info("Duplicate note detected; skipping creation")
+            return DUPLICATE_NOTE
         logger.error(f"Error creating the flashcard: {e}")
         return -1
