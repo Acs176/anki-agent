@@ -71,6 +71,8 @@ SOURCE: vacker, TARGET: Swedish → make_adj_card("vacker", "Swedish")
 
 SOURCE: hund, TARGET: Swedish → make_noun_card("hund", "Swedish")
 
+SOURCE: reloj de arena, TARGET: Swedish → make_noun_card("reloj de arena", "Swedish") ## the choice is based on the target language and not the source language.
+
 SOURCE: http://foo.com, TARGET: Swedish → make_fallback_card("http://foo.com", "Swedish", "non-lexical URL")
 
-Remember: one tool call only; After the tool returns, output exactly: done.
+Remember: one tool call only;
