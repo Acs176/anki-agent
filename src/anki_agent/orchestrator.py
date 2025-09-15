@@ -20,8 +20,24 @@ from .model import (
     RouterFailure,
     VerbCard,
 )
+from .verifying_agent import VerifyingAgent
 
 logger = logs_handler.get_logger()
+
+
+def load_prompt(filename: str) -> str:
+    prompt_dir_path = os.getenv("PROMPTS_PATH")
+    # TODO: Centralize environment variable loading in a Config class
+    if not prompt_dir_path:
+        raise Exception("PROMPTS_PATH must be an env variable")
+
+    prompt_path = Path(prompt_dir_path) / filename
+    if not prompt_path.is_file():
+        raise FileNotFoundError(f"System prompt not found at {prompt_path.resolve()}")
+
+    prompt_text = prompt_path.read_text(encoding="utf-8").strip()
+    logger.info("Loaded system prompt from %s", prompt_path.resolve())
+    return prompt_text
 
 
 @dataclass
@@ -30,12 +46,11 @@ class Deps:
     target_lang: str
 
 
-class AnkiAgent:
-    agent: Agent
+class AnkiAgentOrchestrator:
+    agent: VerifyingAgent
 
     def __init__(self, model_name, api_key):
         logger.info("Initializing AnkiAgent with model=%s", model_name)
-        self._tool_called = False
         model = OpenAIChatModel(model_name, provider=OpenAIProvider(api_key=api_key))
         noun_agent = Agent(
             model=model,
@@ -98,26 +113,13 @@ class AnkiAgent:
             ),
             instrument=True,
         )
-        prompt_dir_path = os.getenv("PROMPTS_PATH")
-        # TODO: Centralize environment variable loading in a Config class
-        if not prompt_dir_path:
-            raise Exception("PROMPTS_PATH must be an env variable")
-        router_prompt_path = Path(prompt_dir_path + "/router.txt")
-        if not router_prompt_path.is_file():
-            raise FileNotFoundError(
-                f"Controller system prompt not found at {router_prompt_path.resolve()}"
-            )
-        controller_system_prompt = router_prompt_path.read_text(encoding="utf-8").strip()
-        logger.info("Loaded controller system prompt from %s", router_prompt_path.resolve())
+        controller_system_prompt = load_prompt("router.txt")
+        verifier_system_prompt = load_prompt("verifier.txt")
 
         async def make_noun_card(
             ctx: RunContext[Deps],
             source: str,
         ) -> NounCard:
-            if self._tool_called:
-                logger.warning("Duplicate tool call prevented: noun | source='%s'", source)
-                return "duplicate_tool_call_ignored"
-            self._tool_called = True
             logger.info(
                 "Router chose: noun | source='%s' | deck='%s' | target='%s'",
                 source,
@@ -138,10 +140,6 @@ class AnkiAgent:
             ctx: RunContext[Deps],
             source: str,
         ) -> VerbCard:
-            if self._tool_called:
-                logger.warning("Duplicate tool call prevented: verb | source='%s'", source)
-                return "duplicate_tool_call_ignored"
-            self._tool_called = True
             logger.info(
                 "Router chose: verb | source='%s' | deck='%s' | target='%s'",
                 source,
@@ -161,10 +159,6 @@ class AnkiAgent:
             ctx: RunContext[Deps],
             source: str,
         ) -> AdjCard:
-            if self._tool_called:
-                logger.warning("Duplicate tool call prevented: adjective | source='%s'", source)
-                return "duplicate_tool_call_ignored"
-            self._tool_called = True
             logger.info(
                 "Router chose: adjective | source='%s' | deck='%s' | target='%s'",
                 source,
@@ -182,10 +176,6 @@ class AnkiAgent:
             ctx: RunContext[Deps],
             source: str,
         ) -> PhraseCard:
-            if self._tool_called:
-                logger.warning("Duplicate tool call prevented: phrase | source='%s'", source)
-                return "duplicate_tool_call_ignored"
-            self._tool_called = True
             logger.info(
                 "Router chose: phrase | source='%s' | deck='%s' | target='%s'",
                 source,
@@ -204,12 +194,6 @@ class AnkiAgent:
             source: str,
             reason: str | None = None,
         ) -> FallbackCard:
-            if self._tool_called:
-                logger.warning(
-                    "Duplicate tool call prevented: fallback | source='" + str(source) + "'"
-                )
-                return "duplicate_tool_call_ignored"
-            self._tool_called = True
             logger.info(
                 "Router chose: fallback | source='%s' | deck='%s' | target='%s' | reason='%s'",
                 source,
@@ -226,12 +210,12 @@ class AnkiAgent:
             logger.debug("Fallback sub-agent output: %s", result.output)
             return result.output
 
-        # Now that tool functions are defined, create the controller Agent.
-        controller = Agent(
+        controller = VerifyingAgent(
+            agent_prompt=controller_system_prompt,
+            verifier_prompt=verifier_system_prompt,
             model=model,
-            deps_type=Deps,
-            system_prompt=controller_system_prompt,
-            output_type=[
+            agent_deps=Deps,
+            struct_out_agent=[
                 make_noun_card,
                 make_adj_card,
                 make_verb_card,
@@ -239,14 +223,12 @@ class AnkiAgent:
                 make_fallback_card,
                 RouterFailure,
             ],
-            instrument=True,
         )
 
         self.agent = controller
 
     async def add_word_async(self, word: str, deck: str, target_lang: str) -> list[str]:
         logger.info("Adding word: '%s' to deck='%s' target='%s'", word, deck, target_lang)
-        self._tool_called = False
         deps = Deps(deck=deck, target_lang=target_lang)
         user_message = f"Word: {word}\nTarget language: {target_lang}"
         logger.debug("Controller agent user_message: %s", user_message)
@@ -256,6 +238,9 @@ class AnkiAgent:
 
         output = result.output
         if isinstance(output, FlashcardType):
+            ## approved, reason = verifyer agent.run()
+            ## if not approved:
+            ##
             logger.debug(
                 "Posting flashcard via anki.add_flashcard | deck=%s word=%s type=%s",
                 deck,
@@ -273,34 +258,4 @@ class AnkiAgent:
             logger.error("Unexpected router output type: %s", type(output))
 
         # Return full trace for observability / tests
-        return result.all_messages
-
-    def add_word(self, word: str, deck: str, target_lang: str) -> list[str]:
-        logger.info("Adding word: '%s' to deck='%s' target='%s'", word, deck, target_lang)
-        self._tool_called = False
-        deps = Deps(deck=deck, target_lang=target_lang)
-        user_message = f"Word: {word}\nTarget language: {target_lang}"
-        logger.debug("Controller agent user_message: %s", user_message)
-        logger.debug("Controller agent deps: deck=%s target=%s", deps.deck, deps.target_lang)
-        result = self.agent.run_sync(user_message, deps=deps)
-        logger.debug("Controller agent messages: %s", result.all_messages)
-
-        output = result.output
-        if isinstance(output, FlashcardType):
-            logger.debug(
-                "Posting flashcard via anki.add_flashcard | deck=%s word=%s type=%s",
-                deck,
-                word,
-                type(output).__name__,
-            )
-            note_id = anki.add_flashcard(deck, word, output)
-            if note_id == anki.DUPLICATE_NOTE:
-                logger.info("Flashcard duplicate; not created")
-            else:
-                logger.info("Note created: id=%s", note_id)
-        elif isinstance(output, RouterFailure):
-            logger.error("RouterFailure: %s", output.explanation)
-        else:
-            logger.error("Unexpected router output type: %s", type(output))
-
         return result.all_messages

@@ -4,7 +4,7 @@ Module for object definitions
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RouterFailure(BaseModel):
@@ -59,3 +59,11 @@ class FallbackCard(BaseModel):
 
 
 FlashcardType = NounCard | AdjCard | VerbCard | FallbackCard | PhraseCard
+
+### VERIFIER MODELS
+
+
+class VerificationOutput(BaseModel):
+    approved: bool = Field(..., description="True if approval criteria is met")
+    reason: str = Field(description="why was the input approved or not")
+    uncertain: bool = Field(False, description="True if the type is plausible but ambiguous")
